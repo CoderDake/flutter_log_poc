@@ -1,13 +1,8 @@
-import 'dart:math';
-
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import './lorem.dart' as lorem;
-import 'package:flutter/gestures.dart';
-import 'package:two_dimensional_scrollables/two_dimensional_scrollables.dart';
 
 /// A builder that includes an Offset to draw the context menu at.
 typedef ContextMenuBuilder = Widget Function(
@@ -76,15 +71,11 @@ void main() {
   var loremJson = lorem.data;
 
   bool showMetadata = true;
-  final rows = <LogRow>[];
+  final rows = <LogData>[];
   for (var i = 0; i < loremJson.length; i++) {
-    rows.addAll(LogRow.generateFrom(
-      LogData(loremJson[i]),
-      showMetadata,
-      i,
-    ));
+    rows.add(LogData(loremJson[i]));
   }
-  var data = <LogRow>[];
+  var data = <LogData>[];
   for (var d = 0; d < 200; d++) {
     data.addAll(rows);
   }
@@ -96,7 +87,7 @@ void main() {
 
 /// A sample application that utilizes the TableView API.
 class TableExampleApp extends StatelessWidget {
-  final List<LogRow> items;
+  final List<LogData> items;
 
   /// Creates an instance of the TableView example app.
   const TableExampleApp({super.key, required this.items});
@@ -108,19 +99,23 @@ class TableExampleApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
       ),
-      home: TableExample(
-        items: items,
-      ),
+      home: LayoutBuilder(builder: (context, constraints) {
+        return TableExample(
+          items: items,
+          width: constraints.maxWidth - 100.0, // sub padding
+        );
+      }),
     );
   }
 }
 
 /// The class containing the TableView for the sample application.
 class TableExample extends StatefulWidget {
-  final List<LogRow> items;
+  final List<LogData> items;
+  final double width;
 
   /// Creates a screen that demonstrates the TableView widget.
-  const TableExample({super.key, required this.items});
+  const TableExample({super.key, required this.items, required this.width});
 
   @override
   State<TableExample> createState() => _TableExampleState();
@@ -137,8 +132,14 @@ Size _textSize(String text, TextStyle style, {double width = double.infinity}) {
 
 class _TableExampleState extends State<TableExample> {
   late final ScrollController _verticalController = ScrollController();
-  late final ScrollController _horizontalController = ScrollController();
   final Set<int> selections = <int>{};
+  final Map<int, double> cachedHeights = {};
+  final normalTextStyle = const TextStyle(color: Colors.black, fontSize: 12.0);
+  final metadataTextStyle = const TextStyle(
+    color: Colors.grey,
+    fontStyle: FontStyle.italic,
+    fontSize: 12.0,
+  );
   double maxWidth = 0.0;
   //TODO: may need to rebuild the table at the current scroll position when we get sections that are longer?
   // We would need to min width to the current screen size
@@ -161,27 +162,17 @@ class _TableExampleState extends State<TableExample> {
     super.dispose();
   }
 
-  void _showDialog(BuildContext context) {
+  void _showDialog(BuildContext context, String message) {
     Navigator.of(context).push(
       DialogRoute<void>(
         context: context,
-        builder: (BuildContext context) =>
-            const AlertDialog(title: Text('You clicked print!')),
+        builder: (BuildContext context) => AlertDialog(title: Text(message)),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme.bodyMedium?.copyWith(
-          fontSize: 16,
-        );
-    widget.items.forEach(
-      (element) {
-        final size = _textSize(element.line, style!);
-        maxWidth = max(maxWidth, size.width);
-      },
-    );
     return Scaffold(
       appBar: AppBar(
         title: const Text('Logging Proof of Concept'),
@@ -225,28 +216,31 @@ class _TableExampleState extends State<TableExample> {
                       ContextMenuButtonItem(
                         onPressed: () {
                           ContextMenuController.removeAny();
-                          _showDialog(context);
+                          _showDialog(context, 'You copied selected rows');
                         },
                         label: 'Copy Selected Rows',
                       ),
                       ContextMenuButtonItem(
                         onPressed: () {
                           ContextMenuController.removeAny();
-                          _showDialog(context);
+                          _showDialog(context,
+                              'You copied selected rows with metadata');
                         },
                         label: 'Copy Selected Rows with Metadata',
                       ),
                       ContextMenuButtonItem(
                         onPressed: () {
                           ContextMenuController.removeAny();
-                          _showDialog(context);
+                          _showDialog(
+                              context, 'Hiding items with the same address');
                         },
                         label: 'Hide items with same Address',
                       ),
                       ContextMenuButtonItem(
                         onPressed: () {
                           ContextMenuController.removeAny();
-                          _showDialog(context);
+                          _showDialog(
+                              context, 'Showing items with the same address');
                         },
                         label: 'Show items with same Address',
                       ),
@@ -254,20 +248,20 @@ class _TableExampleState extends State<TableExample> {
                   );
                 },
                 child: Scrollbar(
+                  thumbVisibility: true,
                   controller: _verticalController,
-                  child: Scrollbar(
-                    controller: _horizontalController,
-                    child: TableView.builder(
-                      verticalDetails: ScrollableDetails.vertical(
-                          controller: _verticalController),
-                      horizontalDetails: ScrollableDetails.horizontal(
-                          controller: _horizontalController),
-                      cellBuilder: _buildCell,
-                      columnCount: 1,
-                      columnBuilder: _buildColumnSpan,
-                      rowCount: widget.items.length,
-                      rowBuilder: _buildRowSpan,
-                    ),
+                  child: CustomScrollView(
+                    controller: _verticalController,
+                    slivers: <Widget>[
+                      SliverVariedExtentList.builder(
+                        itemCount: widget.items.length,
+                        itemBuilder: _buildRow,
+                        itemExtentBuilder: (index, _) => _calculateRowHeight(
+                          index,
+                          widget.width,
+                        ),
+                      )
+                    ],
                   ),
                 ),
               ),
@@ -293,99 +287,75 @@ class _TableExampleState extends State<TableExample> {
     );
   }
 
-  TableViewCell _buildCell(BuildContext context, TableVicinity vicinity) {
-    var index = vicinity.row;
+  Widget? _buildRow(BuildContext contect, int index) {
     var isSelected = selections.contains(index);
     var row = widget.items[index];
+    Color? color = index.isEven ? Colors.purple[100] : null;
 
-    Widget rowContents;
-    if (row.showMetadata && row.isLastLine) {
-      rowContents = ListTile(
-        title: Row(
-          children: [
-            RichText(
-                text: TextSpan(
-              text: 'Address: ${row.data.address}',
-              style: const TextStyle(
-                  fontStyle: FontStyle.italic, color: Colors.grey),
-            )),
-            SizedBox(
-              width: 20.0,
-            ),
-            RichText(
-                text: TextSpan(
-              text: 'Date: ${row.data.date}',
-              style: const TextStyle(
-                  fontStyle: FontStyle.italic, color: Colors.grey),
-            )),
-          ],
-        ),
-      );
-    } else {
-      rowContents = Row(
-        children: [
-          Text(
-            row.line,
-            maxLines: 1,
-            overflow: TextOverflow.visible,
-          ),
-        ],
-      );
-    }
-    return TableViewCell(
-      child: rowContents,
-    );
-  }
-
-  TableSpan _buildColumnSpan(int index) {
-    const TableSpanDecoration decoration = TableSpanDecoration(
-      border: TableSpanBorder(
-        trailing: BorderSide(),
-      ),
-    );
-
-    return TableSpan(
-      foregroundDecoration: decoration,
-      extent: FixedTableSpanExtent(maxWidth),
-      onEnter: (_) => print('Entered column $index'),
-      recognizerFactories: <Type, GestureRecognizerFactory>{
-        TapGestureRecognizer:
-            GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-          () => TapGestureRecognizer(),
-          (TapGestureRecognizer t) =>
-              t.onTap = () => print('Tap column $index'),
-        ),
-      },
-    );
-  }
-
-  TableSpan _buildRowSpan(int index) {
-    final row = widget.items[index];
-    Color? color = row.index.isEven ? Colors.purple[100] : null;
     if (selections.contains(index)) {
       color = Colors.blueGrey;
     }
-    final TableSpanDecoration decoration = TableSpanDecoration(
-      color: color,
-    );
 
-    return TableSpan(
-      backgroundDecoration: decoration,
-      extent: const FixedTableSpanExtent(30),
-      recognizerFactories: <Type, GestureRecognizerFactory>{
-        TapGestureRecognizer:
-            GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-          () => TapGestureRecognizer(),
-          (TapGestureRecognizer t) => t.onTap = () {
-            setState(() {
-              selections.contains(index)
-                  ? selections.remove(index)
-                  : selections.add(index);
-            });
-          },
-        ),
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          if (selections.contains(index)) {
+            selections.remove(index);
+          } else {
+            selections.add(index);
+          }
+        });
       },
+      child: Container(
+        decoration: BoxDecoration(color: color),
+        child: Column(
+          children: [
+            Text(
+              row.about,
+              style: normalTextStyle,
+            ),
+            Row(
+              children: [
+                RichText(
+                    text: TextSpan(
+                  text: 'Address: ${row.address}',
+                  style: metadataTextStyle,
+                )),
+                SizedBox(
+                  width: 20.0,
+                ),
+                RichText(
+                    text: TextSpan(
+                  text: 'Date: ${row.date.toIso8601String()}',
+                  style: metadataTextStyle,
+                )),
+              ],
+            ),
+            const Divider(
+              height: 10.0,
+              color: Colors.black,
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  double? _calculateRowHeight(int index, double width) {
+    final row = widget.items[index];
+    final height = cachedHeights[index];
+    if (height != null) {
+      return height;
+    }
+    final row1 = _textSize(row.about, normalTextStyle, width: width);
+    final row2 = _textSize(
+      'always a single line of text',
+      metadataTextStyle,
+      width: width,
+    );
+    final newHeight = row1.height + row2.height + 40.0;
+    cachedHeights[index] = newHeight;
+    return newHeight;
   }
 }
 
