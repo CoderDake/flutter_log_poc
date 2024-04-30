@@ -85,7 +85,7 @@ void main() {
     ));
   }
   var data = <LogRow>[];
-  for (var d = 0; d < 20; d++) {
+  for (var d = 0; d < 200; d++) {
     data.addAll(rows);
   }
   // pass data
@@ -127,12 +127,11 @@ class TableExample extends StatefulWidget {
 }
 
 // Here it is!
-Size _textSize(String text, TextStyle style) {
+Size _textSize(String text, TextStyle style, {double width = double.infinity}) {
   final TextPainter textPainter = TextPainter(
       text: TextSpan(text: text, style: style),
-      maxLines: 1,
       textDirection: TextDirection.ltr)
-    ..layout(minWidth: 0, maxWidth: double.infinity);
+    ..layout(minWidth: 0, maxWidth: width);
   return textPainter.size;
 }
 
@@ -264,7 +263,7 @@ class _TableExampleState extends State<TableExample> {
                       horizontalDetails: ScrollableDetails.horizontal(
                           controller: _horizontalController),
                       cellBuilder: _buildCell,
-                      columnCount: 2,
+                      columnCount: 1,
                       columnBuilder: _buildColumnSpan,
                       rowCount: widget.items.length,
                       rowBuilder: _buildRowSpan,
@@ -299,27 +298,6 @@ class _TableExampleState extends State<TableExample> {
     var isSelected = selections.contains(index);
     var row = widget.items[index];
 
-    if (vicinity.column == 0) {
-      if (row.showMetadata && row.isLastLine) {
-        return TableViewCell(
-          child: Container(),
-        );
-      } else {
-        return TableViewCell(
-          child: Checkbox(
-              value: isSelected,
-              onChanged: (_) {
-                setState(() {
-                  if (isSelected) {
-                    selections.remove(index);
-                  } else {
-                    selections.add(index);
-                  }
-                });
-              }),
-        );
-      }
-    }
     Widget rowContents;
     if (row.showMetadata && row.isLastLine) {
       rowContents = ListTile(
@@ -368,7 +346,7 @@ class _TableExampleState extends State<TableExample> {
 
     return TableSpan(
       foregroundDecoration: decoration,
-      extent: FixedTableSpanExtent(index == 0 ? 25.0 : maxWidth),
+      extent: FixedTableSpanExtent(maxWidth),
       onEnter: (_) => print('Entered column $index'),
       recognizerFactories: <Type, GestureRecognizerFactory>{
         TapGestureRecognizer:
@@ -382,8 +360,13 @@ class _TableExampleState extends State<TableExample> {
   }
 
   TableSpan _buildRowSpan(int index) {
+    final row = widget.items[index];
+    Color? color = row.index.isEven ? Colors.purple[100] : null;
+    if (selections.contains(index)) {
+      color = Colors.blueGrey;
+    }
     final TableSpanDecoration decoration = TableSpanDecoration(
-      color: widget.items[index].index.isEven ? Colors.purple[100] : null,
+      color: color,
     );
 
     return TableSpan(
