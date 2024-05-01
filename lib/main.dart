@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -134,7 +135,10 @@ class _TableExampleState extends State<TableExample> {
   late final ScrollController _verticalController = ScrollController();
   final Set<int> selections = <int>{};
   final Map<int, double> cachedHeights = {};
+  final Map<int, double> cachedOffets = {};
   final normalTextStyle = const TextStyle(color: Colors.black, fontSize: 12.0);
+  Iterable<LogData> filteredItems = [];
+
   final metadataTextStyle = const TextStyle(
     color: Colors.grey,
     fontStyle: FontStyle.italic,
@@ -146,6 +150,8 @@ class _TableExampleState extends State<TableExample> {
 
   @override
   void initState() {
+    filteredItems = widget.items;
+    _recalcFromFiltered();
     super.initState();
     // On web, disable the browser's context menu since this example uses a custom
     // Flutter-rendered context menu.
@@ -181,7 +187,7 @@ class _TableExampleState extends State<TableExample> {
         padding: const EdgeInsets.symmetric(horizontal: 50),
         child: Column(
           children: [
-            const Row(
+            Row(
               children: [
                 Expanded(
                   flex: 1,
@@ -190,16 +196,36 @@ class _TableExampleState extends State<TableExample> {
                       border: OutlineInputBorder(),
                       hintText: 'Filter',
                     ),
+                    onSubmitted: (value) {
+                      setState(() {
+                        filteredItems =
+                            widget.items.where((e) => e.about.contains(value));
+                        _recalcFromFiltered();
+                      });
+                    },
                   ),
                 ),
                 Expanded(
                   flex: 1,
                   child: TextField(
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText: 'Search',
-                    ),
-                  ),
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: 'Search',
+                      ),
+                      onSubmitted: (value) {
+                        for (var i = 0; i < filteredItems.length; i++) {
+                          var about = filteredItems.elementAt(i).about;
+                          if (about.contains(value)) {
+                            var offset =
+                                _calculateOffsetForIndex(i, widget.width);
+                            print(offset);
+                            _verticalController.animateTo(offset,
+                                duration: const Duration(milliseconds: 500),
+                                curve: Curves.bounceIn);
+                            return;
+                          }
+                        }
+                      }),
                 )
               ],
             ),
@@ -254,7 +280,7 @@ class _TableExampleState extends State<TableExample> {
                     controller: _verticalController,
                     slivers: <Widget>[
                       SliverVariedExtentList.builder(
-                        itemCount: widget.items.length,
+                        itemCount: filteredItems.length,
                         itemBuilder: _buildRow,
                         itemExtentBuilder: (index, _) => _calculateRowHeight(
                           index,
@@ -285,6 +311,14 @@ class _TableExampleState extends State<TableExample> {
         ),
       ],
     );
+  }
+
+  void _recalcFromFiltered() {
+    cachedHeights.clear();
+    cachedOffets.clear();
+    for (var i = 0; i < filteredItems.length; i++) {
+      _calculateRowHeight(i, widget.width);
+    }
   }
 
   Widget? _buildRow(BuildContext contect, int index) {
@@ -356,6 +390,18 @@ class _TableExampleState extends State<TableExample> {
     final newHeight = row1.height + row2.height + 40.0;
     cachedHeights[index] = newHeight;
     return newHeight;
+  }
+
+  double _calculateOffsetForIndex(int index, double width) {
+    if (cachedOffets.containsKey(index)) {
+      return cachedOffets[index]!;
+    }
+    var offset = 0.0;
+    for (int i = 0; i < index; i++) {
+      offset += _calculateRowHeight(i, width)!;
+      cachedOffets[i] = offset;
+    }
+    return offset;
   }
 }
 
